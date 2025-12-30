@@ -3,6 +3,7 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	IBinaryData,
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import { exec } from 'child_process';
@@ -59,7 +60,7 @@ export class FfmpegSplitAudio implements INodeType {
 				description: 'Name of the binary property containing the audio file',
 			},
 			{
-				displayName: 'Segment Length (seconds)',
+				displayName: 'Segment Length (Seconds)',
 				name: 'segmentLength',
 				type: 'number',
 				default: 30,
@@ -72,7 +73,7 @@ export class FfmpegSplitAudio implements INodeType {
 				description: 'Target length of each segment in seconds',
 			},
 			{
-				displayName: 'Overlap (seconds)',
+				displayName: 'Overlap (Seconds)',
 				name: 'overlap',
 				type: 'number',
 				default: 0,
@@ -93,10 +94,10 @@ export class FfmpegSplitAudio implements INodeType {
 						operation: ['calculateSegments'],
 					},
 				},
-				description: 'Whether to output all segments as binary data. Each segment will be in a separate binary property (data_1, data_2, etc.)',
+				description: 'Whether to output all segments as binary data. Each segment will be in a separate binary property (data_1, data_2, etc.).',
 			},
 			{
-				displayName: 'Start Time (seconds)',
+				displayName: 'Start Time (Seconds)',
 				name: 'startTime',
 				type: 'number',
 				default: 0,
@@ -109,7 +110,7 @@ export class FfmpegSplitAudio implements INodeType {
 				description: 'Start time of the segment to extract in seconds',
 			},
 			{
-				displayName: 'End Time (seconds)',
+				displayName: 'End Time (Seconds)',
 				name: 'endTime',
 				type: 'number',
 				default: 30,
@@ -132,7 +133,7 @@ export class FfmpegSplitAudio implements INodeType {
 					},
 				},
 				placeholder: 'Leave empty for auto-generated name',
-				description: 'Custom filename for the extracted audio. Leave empty to use pattern: {original}_{start}_{end}.{ext}',
+				description: 'Custom filename for the extracted audio. Leave empty to use pattern: {original}_{start}_{end}.{ext}.',
 			},
 			{
 				displayName: 'Output Binary Property',
@@ -147,6 +148,7 @@ export class FfmpegSplitAudio implements INodeType {
 				description: 'Name of the binary property for the extracted audio',
 			},
 		],
+		usableAsTool: true,
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -176,7 +178,9 @@ export class FfmpegSplitAudio implements INodeType {
 
 						const durationMatch = stdout.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
 						if (!durationMatch) {
-							throw new Error('Could not extract duration from audio file');
+							throw new NodeOperationError(this.getNode(), 'Could not extract duration from audio file', {
+								itemIndex,
+							});
 						}
 
 						const hours = parseInt(durationMatch[1], 10);
@@ -184,7 +188,7 @@ export class FfmpegSplitAudio implements INodeType {
 						const seconds = parseFloat(durationMatch[3]);
 						const totalDuration = hours * 3600 + minutes * 60 + seconds;
 
-						const segments: Array<{ start: number; end: number; index: number }> = [];
+						const segments: Array<{ start: number; end: number; index: number; binaryDataKey?: string; filename?: string }> = [];
 						const step = segmentLength - overlap;
 						let currentStart = 0;
 						let segmentIndex = 0;
@@ -201,7 +205,7 @@ export class FfmpegSplitAudio implements INodeType {
 						}
 
 						if (outputSegments) {
-							const binaryOutput: { [key: string]: any } = {};
+							const binaryOutput: Record<string, IBinaryData> = {};
 							const originalName = binaryData.fileName || 'audio';
 							const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
 							const tempOutputPaths: string[] = [];
@@ -221,13 +225,17 @@ export class FfmpegSplitAudio implements INodeType {
 
 									const extractedBuffer = await readFile(tempOutputPath);
 									const outputFilename = `${nameWithoutExt}_${segment.start}_${segment.end}.${fileExtension}`;
+									const binaryDataKey = `${binaryPropertyName}_${segment.index + 1}`;
 									const segmentBinaryData = await this.helpers.prepareBinaryData(
 										extractedBuffer,
 										outputFilename,
 										binaryData.mimeType,
 									);
 
-									binaryOutput[`${binaryPropertyName}_${segment.index + 1}`] = segmentBinaryData;
+									binaryOutput[binaryDataKey] = segmentBinaryData;
+									
+									segment.binaryDataKey = binaryDataKey;
+									segment.filename = outputFilename;
 								}
 
 								returnData.push({
@@ -271,7 +279,9 @@ export class FfmpegSplitAudio implements INodeType {
 					) as string;
 
 					if (endTime <= startTime) {
-						throw new Error('End time must be greater than start time');
+						throw new NodeOperationError(this.getNode(), 'End time must be greater than start time', {
+							itemIndex,
+						});
 					}
 
 					const duration = endTime - startTime;
