@@ -84,6 +84,18 @@ export class FfmpegSplitAudio implements INodeType {
 				description: 'Overlap between segments in seconds',
 			},
 			{
+				displayName: 'Output Segments',
+				name: 'outputSegments',
+				type: 'boolean',
+				default: false,
+				displayOptions: {
+					show: {
+						operation: ['calculateSegments'],
+					},
+				},
+				description: 'Whether to output all segments as binary data. Each segment will be in a separate binary property (data_1, data_2, etc.)',
+			},
+			{
 				displayName: 'Start Time (seconds)',
 				name: 'startTime',
 				type: 'number',
@@ -151,6 +163,7 @@ export class FfmpegSplitAudio implements INodeType {
 				if (operation === 'calculateSegments') {
 					const segmentLength = this.getNodeParameter('segmentLength', itemIndex) as number;
 					const overlap = this.getNodeParameter('overlap', itemIndex) as number;
+					const outputSegments = this.getNodeParameter('outputSegments', itemIndex, false) as boolean;
 
 					const fileExtension = binaryData.fileExtension || 'm4a';
 					const tempInputPath = join(tmpdir(), `input_${Date.now()}_${itemIndex}.${fileExtension}`);
@@ -187,16 +200,64 @@ export class FfmpegSplitAudio implements INodeType {
 							segmentIndex++;
 						}
 
-						returnData.push({
-							json: {
-								totalDuration,
-								segmentLength,
-								overlap,
-								segmentCount: segments.length,
-								segments,
-							},
-							pairedItem: itemIndex,
-						});
+						if (outputSegments) {
+							const binaryOutput: { [key: string]: any } = {};
+							const originalName = binaryData.fileName || 'audio';
+							const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
+							const tempOutputPaths: string[] = [];
+
+							try {
+								for (const segment of segments) {
+									const duration = segment.end - segment.start;
+									const tempOutputPath = join(
+										tmpdir(),
+										`output_${Date.now()}_${itemIndex}_${segment.index}.${fileExtension}`,
+									);
+									tempOutputPaths.push(tempOutputPath);
+
+									await execAsync(
+										`"${FFMPEG_PATH}" -i "${tempInputPath}" -ss ${segment.start} -t ${duration} -c copy "${tempOutputPath}"`,
+									);
+
+									const extractedBuffer = await readFile(tempOutputPath);
+									const outputFilename = `${nameWithoutExt}_${segment.start}_${segment.end}.${fileExtension}`;
+									const segmentBinaryData = await this.helpers.prepareBinaryData(
+										extractedBuffer,
+										outputFilename,
+										binaryData.mimeType,
+									);
+
+									binaryOutput[`${binaryPropertyName}_${segment.index + 1}`] = segmentBinaryData;
+								}
+
+								returnData.push({
+									json: {
+										totalDuration,
+										segmentLength,
+										overlap,
+										segmentCount: segments.length,
+										segments,
+									},
+									binary: binaryOutput,
+									pairedItem: itemIndex,
+								});
+							} finally {
+								for (const tempPath of tempOutputPaths) {
+									await unlink(tempPath).catch(() => {});
+								}
+							}
+						} else {
+							returnData.push({
+								json: {
+									totalDuration,
+									segmentLength,
+									overlap,
+									segmentCount: segments.length,
+									segments,
+								},
+								pairedItem: itemIndex,
+							});
+						}
 					} finally {
 						await unlink(tempInputPath).catch(() => {});
 					}
