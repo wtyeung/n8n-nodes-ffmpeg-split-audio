@@ -26,15 +26,17 @@ This node supports two operations:
 Analyzes an audio file and calculates segment start/end times based on:
 - **Segment Length**: Target duration for each segment (in seconds)
 - **Overlap**: Overlap duration between consecutive segments (in seconds)
+- **Output Segments**: Optional - when enabled, automatically splits the audio and outputs all segments as binary data
 
-Returns an array of segments with their start and end times, useful for batch processing audio files.
+Returns an array of segments with their start and end times. When "Output Segments" is enabled, also outputs each segment as separate binary properties (`data_1`, `data_2`, etc.) with filenames following the pattern `{original}_{start}_{end}.{ext}`.
 
 ### Extract Segment
 Extracts a specific portion of an audio file:
 - **Start Time**: Beginning of the segment to extract (in seconds)
 - **End Time**: End of the segment to extract (in seconds)
+- **Custom Filename**: Optional - specify a custom filename for the extracted audio
 
-Outputs the extracted audio as binary data.
+Outputs the extracted audio as binary data. If no custom filename is provided, uses the pattern `{original}_{start}_{end}.{ext}`.
 
 ## Prerequisites
 
@@ -57,7 +59,10 @@ Tested with:
 3. Select "Calculate Segments" operation
 4. Set segment length (e.g., 30 seconds)
 5. Set overlap (e.g., 5 seconds for context between segments)
-6. The output will contain an array of segment timings
+6. Enable "Output Segments" if you want to automatically split and output all segments
+7. The output will contain:
+   - JSON with segment timing information
+   - Binary data for each segment (if "Output Segments" is enabled)
 
 ### Example Workflow: Extract Segment
 
@@ -70,9 +75,11 @@ Tested with:
 
 ### Tips
 
-- Use "Calculate Segments" first to determine optimal split points
+- Use "Calculate Segments" with "Output Segments" enabled to automatically split an entire audio file into multiple segments
+- Use "Extract Segment" when you need to extract a specific portion of audio
 - Overlap is useful when processing speech or music to avoid cutting off content
-- The node preserves the original audio codec when extracting segments (using `-c copy`)
+- The node preserves the original audio codec when extracting segments (using `-c copy`) for fast processing
+- Binary properties are named sequentially: `data_1`, `data_2`, `data_3`, etc.
 
 ## Resources
 
